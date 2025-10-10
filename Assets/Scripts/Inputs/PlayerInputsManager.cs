@@ -21,6 +21,6 @@ public class PlayerInputsManager : MonoBehaviour
 
     private void FixedUpdate()
     {
-        _character.Movement(_inputs.Actions.Move.ReadValue<float>());
+        _character.GetMovementInput(_inputs.Actions.Move.ReadValue<float>());
     }
 }
