@@ -7,8 +7,8 @@ public class Collectable : MonoBehaviour
     [SerializeField] private float _oscillationAmplitude = 0.0f;
     [SerializeField] private float _oscillationFrequency = 0.0f;
 
-    [SerializeField] private float _rotationSpeed = 0.0f;
-    [SerializeField] private AnimationCurve _rotationCurve = null;
+    //[SerializeField] private float _rotationSpeed = 0.0f;
+    //[SerializeField] private AnimationCurve _rotationCurve = null;
 
     private Vector3 _basePosition = Vector3.zero;
 

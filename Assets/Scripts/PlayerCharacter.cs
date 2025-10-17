@@ -35,8 +35,9 @@ public class PlayerCharacter : MonoBehaviour
     private struct JumpValues
     {
         public float ImpulseForce;
-        public float Decceleration;
+        public float Deceleration;
         public float MaxDeceleration;
+        [Tooltip("Range [0, 1]")] public AnimationCurve DecelerationFromAirTime;
         public float Height;
     }
 
@@ -247,7 +248,24 @@ public class PlayerCharacter : MonoBehaviour
 
     private void JumpForce()
     {
+        if (!_isJumping)
+            return;
 
+        float jumpTimeRatio = Mathf.Clamp01(_airTime / _jumpTime);
+        float deceleration = _jumpParameters.Deceleration *_jumpParameters.DecelerationFromAirTime.Evaluate(jumpTimeRatio) * Time.fixedDeltaTime;
+
+        _currentJumpForce = Mathf.MoveTowards(_currentJumpForce, 0.0f, deceleration);
+
+        float velocityDelta = _currentJumpForce - _rigidbody.velocity.y;
+        velocityDelta = Mathf.Clamp(velocityDelta, -_jumpParameters.MaxDeceleration, 0.0f);
+
+        _forceToAdd.y += velocityDelta;
+
+        if (_airTime > _jumpTime)
+        {
+            _isJumping = false;
+            _currentJumpForce = 0.0f;
+        }
     }
 
     public void ActionOne()
