@@ -6,6 +6,8 @@ using System;
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerCharacter : MonoBehaviour
 {
+    #region DataStructure
+
     public enum PhysicState
     {
         Ground,
@@ -39,7 +41,10 @@ public class PlayerCharacter : MonoBehaviour
         public float MaxDeceleration;
         [Tooltip("Range [0, 1]")] public AnimationCurve DecelerationFromAirTime;
         public float Height;
+        public float BufferTime;
     }
+
+    #endregion DataStructure
 
     [Header("Gameplay")]
     [SerializeField] private MovementValues _groundPhysic = new MovementValues();
@@ -71,11 +76,14 @@ public class PlayerCharacter : MonoBehaviour
 
     //Air
     private float _airTime = 0.0f;
+    private bool _isInCoyoteTime = false;
 
     //Jump
     private float _currentJumpForce = 0.0f;
     private bool _isJumping = false;
     private float _jumpTime = 0.0f;
+    private float _startJumpTime = 0.0f;
+    private bool _bufferJump = false;
 
     //Event appelé quand on touche ou quitte le sol
     public event Action<PhysicState> OnPhysicStateChanged;
@@ -89,6 +97,8 @@ public class PlayerCharacter : MonoBehaviour
         //On enregistre le changement de physic à l'event qui detecte le changement d'état du sol
         OnPhysicStateChanged += ChangePhysic;
         OnPhysicStateChanged += ResetGravity;
+        OnPhysicStateChanged += CancelJump;
+        OnPhysicStateChanged += TryJumpBuffer;
     }
 
 #if UNITY_EDITOR
@@ -117,6 +127,7 @@ public class PlayerCharacter : MonoBehaviour
         //Et appelle les events associés
         GroundDetection();
         ManageAirTime();
+        ManageCoyoteTime();
 
         //On effectue tous les calculs physiques
         Movement();
@@ -143,6 +154,8 @@ public class PlayerCharacter : MonoBehaviour
         else if (!isTouchingGround && _isGrounded)
         {
             _isGrounded = false;
+            if (!_isJumping)
+                _isInCoyoteTime = true;
             //On invoque l'event en passant false pour signifier que le joueur quitte au sol
             OnPhysicStateChanged.Invoke(PhysicState.Air);
         }
@@ -152,6 +165,12 @@ public class PlayerCharacter : MonoBehaviour
     {
         if (!_isGrounded)
             _airTime += Time.fixedDeltaTime;
+    }
+
+    private void ManageCoyoteTime()
+    {
+        if (_airTime > _gravityParameters.CoyoteTime)
+            _isInCoyoteTime = false;
     }
 
     private void ChangePhysic(PhysicState groundState)
@@ -211,7 +230,8 @@ public class PlayerCharacter : MonoBehaviour
             return;
 
         float coyoteTimeRatio = Mathf.Clamp01(_airTime / _gravityParameters.CoyoteTime);
-        float acceleration = _gravityParameters.Acceleration * _gravityParameters.GravityRemapFromCoyoteTime.Evaluate(coyoteTimeRatio) * Time.fixedDeltaTime;
+        float coyoteTimeFactor = _isInCoyoteTime ? _gravityParameters.GravityRemapFromCoyoteTime.Evaluate(coyoteTimeRatio) : 1.0f;
+        float acceleration = _gravityParameters.Acceleration * coyoteTimeFactor * Time.fixedDeltaTime;
 
         _currentGravity = Mathf.MoveTowards(_currentGravity, _gravityParameters.MaxForce, acceleration);
 
@@ -238,12 +258,23 @@ public class PlayerCharacter : MonoBehaviour
 
     public void StartJump()
     {
-        if (!_isGrounded || _isJumping)
+        if ((!_isGrounded && !_isInCoyoteTime) || _isJumping)
+        {
+            _bufferJump = true;
+            Invoke(nameof(StopJumpBuffer), _jumpParameters.BufferTime);
             return;
+        }
 
         _currentJumpForce = _jumpParameters.ImpulseForce;
         _rigidbody.velocity = new Vector2(_rigidbody.velocity.x, _currentJumpForce);
         _isJumping = true;
+        _isInCoyoteTime = false;
+        _startJumpTime = _airTime;
+    }
+
+    private void StopJumpBuffer()
+    {
+        _bufferJump = false;
     }
 
     private void JumpForce()
@@ -251,8 +282,8 @@ public class PlayerCharacter : MonoBehaviour
         if (!_isJumping)
             return;
 
-        float jumpTimeRatio = Mathf.Clamp01(_airTime / _jumpTime);
-        float deceleration = _jumpParameters.Deceleration *_jumpParameters.DecelerationFromAirTime.Evaluate(jumpTimeRatio) * Time.fixedDeltaTime;
+        float jumpTimeRatio = Mathf.Clamp01((_airTime - _startJumpTime) / _jumpTime);
+        float deceleration = _jumpParameters.Deceleration * _jumpParameters.DecelerationFromAirTime.Evaluate(jumpTimeRatio) * Time.fixedDeltaTime;
 
         _currentJumpForce = Mathf.MoveTowards(_currentJumpForce, 0.0f, deceleration);
 
@@ -261,10 +292,29 @@ public class PlayerCharacter : MonoBehaviour
 
         _forceToAdd.y += velocityDelta;
 
-        if (_airTime > _jumpTime)
+        if (jumpTimeRatio >= 1.0f)
         {
             _isJumping = false;
             _currentJumpForce = 0.0f;
+        }
+    }
+
+    private void CancelJump(PhysicState state)
+    {
+        if (state != PhysicState.Air)
+        {
+            _isJumping = false;
+            _currentJumpForce = 0.0f;
+        }
+    }
+
+    private void TryJumpBuffer(PhysicState state)
+    {
+        if (state != PhysicState.Air && _bufferJump)
+        {
+            StartJump();
+            _bufferJump = false;
+            CancelInvoke(nameof(StopJumpBuffer));
         }
     }
 
